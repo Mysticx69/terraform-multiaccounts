@@ -1,0 +1,275 @@
+name: "Terraform PullRequests Jobs"
+
+on:
+  pull_request:
+    branches:
+      - "staging"
+      - "production"
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  validate-terraform-staging:
+    name: "TestLintTerraformAndUpdatePR-staging"
+    runs-on: ubuntu-latest
+    if: github.base_ref == staging
+
+    steps:
+      - name: Checkout The Code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        id: init
+        run: |
+          export TF_WORKSPACE="staging"
+          terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          export TF_WORKSPACE="staging"
+          terraform plan -no-color -input=false
+        continue-on-error: true
+
+      - name: Update Pull Request
+        uses: actions/github-script@v6
+
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${process.env.PLAN}
+            \`\`\`
+            </details>
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  Costs-staging:
+    name: Run Infracost
+    runs-on: ubuntu-latest
+    env:
+      TF_ROOT: ./
+      TFC_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          cli_config_credentials_hostname: ${{ env.TFC_HOST }}
+          terraform_wrapper: false # This is recommended so the `terraform show` command outputs valid JSON
+
+      - name: Terraform init
+        run: |
+          export TF_WORKSPACE="staging"
+          terraform init
+        working-directory: ${{ env.TF_ROOT }}
+
+      # When using TFC remote execution, terraform doesn't allow us to save the plan output.
+      # So we have to save the plan logs so we can parse out the run ID and fetch the plan JSON
+      - name: Retrieve plan JSONs
+        run: |
+          export TF_WORKSPACE="staging"
+          echo "Running terraform plan"
+          terraform plan -no-color | tee /tmp/plan_logs.txt
+
+          echo "Parsing the run URL and ID from the logs"
+          run_url=$(grep -A1 'To view this run' /tmp/plan_logs.txt | tail -n 1)
+          run_id=$(basename $run_url)
+
+          echo "Getting the run plan response from https://$TFC_HOST/api/v2/runs/$run_id/plan"
+          run_plan_resp=$(wget -q -O - --header="Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" "https://$TFC_HOST/api/v2/runs/$run_id/plan")
+          echo "Extracting the plan JSON path"
+          plan_json_path=$(echo $run_plan_resp | sed 's/.*\"json-output\":\"\([^\"]*\)\".*/\1/')
+
+          echo "Downloading the plan JSON from https://$TFC_HOST$plan_json_path"
+          wget -q -O plan.json --header="Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" "https://$TFC_HOST$plan_json_path"
+        working-directory: ${{ env.TF_ROOT }}
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        # See https://github.com/infracost/actions/tree/master/setup for other inputs
+        # If you can't use this action, see Docker images in https://infracost.io/cicd
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      # Generate an Infracost diff and save it to a JSON file.
+      - name: Generate Infracost diff
+        run: |
+          infracost diff --path=${TF_ROOT}/plan.json \
+                         --format=json \
+                         --out-file=/tmp/infracost.json
+
+      - name: Post Infracost comment
+        run: |
+          infracost comment github --path=/tmp/infracost.json \
+                                   --repo=$GITHUB_REPOSITORY \
+                                   --github-token=${{github.token}} \
+                                   --pull-request=${{github.event.pull_request.number}} \
+                                   --behavior=update
+
+  validate-terraform-production:
+    name: "TestLintTerraformAndUpdatePR-production"
+    runs-on: ubuntu-latest
+    if: github.base_ref == production
+
+    steps:
+      - name: Checkout The Code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        id: init
+        run: |
+          export TF_WORKSPACE="production"
+          terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          export TF_WORKSPACE="production"
+          terraform plan -no-color -input=false
+        continue-on-error: true
+
+      - name: Update Pull Request
+        uses: actions/github-script@v6
+
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${process.env.PLAN}
+            \`\`\`
+            </details>
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  Costs-production:
+    name: Run Infracost
+    runs-on: ubuntu-latest
+    env:
+      TF_ROOT: ./
+      TFC_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          cli_config_credentials_hostname: ${{ env.TFC_HOST }}
+          terraform_wrapper: false # This is recommended so the `terraform show` command outputs valid JSON
+
+      - name: Terraform init
+        run: |
+          export TF_WORKSPACE="production"
+          terraform init
+        working-directory: ${{ env.TF_ROOT }}
+
+      # When using TFC remote execution, terraform doesn't allow us to save the plan output.
+      # So we have to save the plan logs so we can parse out the run ID and fetch the plan JSON
+      - name: Retrieve plan JSONs
+        run: |
+          export TF_WORKSPACE="production"
+          echo "Running terraform plan"
+          terraform plan -no-color | tee /tmp/plan_logs.txt
+
+          echo "Parsing the run URL and ID from the logs"
+          run_url=$(grep -A1 'To view this run' /tmp/plan_logs.txt | tail -n 1)
+          run_id=$(basename $run_url)
+
+          echo "Getting the run plan response from https://$TFC_HOST/api/v2/runs/$run_id/plan"
+          run_plan_resp=$(wget -q -O - --header="Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" "https://$TFC_HOST/api/v2/runs/$run_id/plan")
+          echo "Extracting the plan JSON path"
+          plan_json_path=$(echo $run_plan_resp | sed 's/.*\"json-output\":\"\([^\"]*\)\".*/\1/')
+
+          echo "Downloading the plan JSON from https://$TFC_HOST$plan_json_path"
+          wget -q -O plan.json --header="Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" "https://$TFC_HOST$plan_json_path"
+        working-directory: ${{ env.TF_ROOT }}
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        # See https://github.com/infracost/actions/tree/master/setup for other inputs
+        # If you can't use this action, see Docker images in https://infracost.io/cicd
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      # Generate an Infracost diff and save it to a JSON file.
+      - name: Generate Infracost diff
+        run: |
+          infracost diff --path=${TF_ROOT}/plan.json \
+                         --format=json \
+                         --out-file=/tmp/infracost.json
+
+      - name: Post Infracost comment
+        run: |
+          infracost comment github --path=/tmp/infracost.json \
+                                   --repo=$GITHUB_REPOSITORY \
+                                   --github-token=${{github.token}} \
+                                   --pull-request=${{github.event.pull_request.number}} \
+                                   --behavior=update
