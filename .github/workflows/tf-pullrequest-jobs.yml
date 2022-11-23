@@ -15,7 +15,7 @@ jobs:
   validate-terraform-staging:
     name: "TestLintTerraformAndUpdatePR-staging"
     runs-on: ubuntu-latest
-    if: github.base_ref == staging
+    if: github.base_ref == 'staging'
 
     steps:
       - name: Checkout The Code
@@ -77,8 +77,9 @@ jobs:
         run: exit 1
 
   Costs-staging:
-    name: Run Infracost
+    name: Run Infracost Staging
     runs-on: ubuntu-latest
+    if: github.base_ref == 'staging'
     env:
       TF_ROOT: ./
       TFC_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
@@ -143,10 +144,13 @@ jobs:
                                    --pull-request=${{github.event.pull_request.number}} \
                                    --behavior=update
 
+  ###################################################################
+  # Same Workflow But On Production Environment
+  ###################################################################
   validate-terraform-production:
     name: "TestLintTerraformAndUpdatePR-production"
     runs-on: ubuntu-latest
-    if: github.base_ref == production
+    if: github.base_ref == 'production'
 
     steps:
       - name: Checkout The Code
@@ -208,8 +212,9 @@ jobs:
         run: exit 1
 
   Costs-production:
-    name: Run Infracost
+    name: Run Infracost Production
     runs-on: ubuntu-latest
+    if: github.base_ref == 'production'
     env:
       TF_ROOT: ./
       TFC_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
