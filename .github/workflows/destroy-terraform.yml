@@ -1,0 +1,48 @@
+name: "Terraform Destroy"
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: ./
+
+jobs:
+  terraform-destroy-staging:
+    name: "Terraform: destroy in staging"
+    if: github.ref_name = 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform destroy
+        run: |
+          export TF_WORKSPACE="staging"
+          terraform init 
+          terraform destroy -auto-approve -input=false
+
+  ###################################################################
+  # Same Workflow But On Production Environment (main branch)
+  ###################################################################
+  terraform-destroy-production:
+    name: "Terraform: destroy in production"
+    if: github.ref_name = 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform destroy
+        run: |
+          export TF_WORKSPACE="production"
+          terraform init 
+          terraform destroy -auto-approve -input=false

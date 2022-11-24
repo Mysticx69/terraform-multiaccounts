@@ -1,0 +1,51 @@
+name: "Terraform Deployment"
+
+on:
+  push:
+    branches:
+      - "staging"
+      - "main"
+
+defaults:
+  run:
+    working-directory: ./
+
+jobs:
+  terraform-apply-staging:
+    name: "Terraform: Apply in staging"
+    if: github.ref_name == 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Apply
+        run: |
+          export TF_WORKSPACE="staging"
+          terraform init 
+          terraform apply -auto-approve -input=false
+
+  ###################################################################
+  # Same Workflow But On Production Environment (main branch)
+  ###################################################################
+  terraform-apply-production:
+    name: "Terraform: Apply in production"
+    if: github.ref_name =='main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Apply
+        run: |
+          export TF_WORKSPACE="production"
+          terraform init 
+          terraform apply -auto-approve -input=false
