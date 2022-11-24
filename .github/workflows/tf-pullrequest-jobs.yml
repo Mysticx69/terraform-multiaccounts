@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - "staging"
-      - "production"
+      - "main"
 
 permissions:
   issues: write
@@ -56,15 +56,28 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
-            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
             #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            <details><summary>Validation Output</summary>
+
+            \`\`\`\n
+            ${{ steps.validate.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
             #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
             <details><summary>Show Plan</summary>
+
             \`\`\`\n
             ${process.env.PLAN}
             \`\`\`
+
             </details>
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -145,12 +158,12 @@ jobs:
                                    --behavior=update
 
   ###################################################################
-  # Same Workflow But On Production Environment
+  # Same Workflow But On Production Environment (main branch)
   ###################################################################
   validate-terraform-production:
     name: "TestLintTerraformAndUpdatePR-production"
     runs-on: ubuntu-latest
-    if: github.base_ref == 'production'
+    if: github.base_ref == 'main'
 
     steps:
       - name: Checkout The Code
@@ -191,15 +204,28 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
-            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
             #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            <details><summary>Validation Output</summary>
+
+            \`\`\`\n
+            ${{ steps.validate.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
             #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
             <details><summary>Show Plan</summary>
+
             \`\`\`\n
             ${process.env.PLAN}
             \`\`\`
+
             </details>
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -214,7 +240,7 @@ jobs:
   Costs-production:
     name: Run Infracost Production
     runs-on: ubuntu-latest
-    if: github.base_ref == 'production'
+    if: github.base_ref == 'main'
     env:
       TF_ROOT: ./
       TFC_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
@@ -236,8 +262,6 @@ jobs:
           terraform init
         working-directory: ${{ env.TF_ROOT }}
 
-      # When using TFC remote execution, terraform doesn't allow us to save the plan output.
-      # So we have to save the plan logs so we can parse out the run ID and fetch the plan JSON
       - name: Retrieve plan JSONs
         run: |
           export TF_WORKSPACE="production"
