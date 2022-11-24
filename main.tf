@@ -14,8 +14,8 @@ module "vpc" {
   availability_zones   = local.staging_availability_zones
 
   tags = {
-    DeployedBy = "Terraform"
-    Author     = "Antoine Sterna"
-    date       = "23/11/2022"
+    Terraform = "True"
+    Author    = "Antoine Sterna"
+    date      = "24/11/2022"
   }
 }
